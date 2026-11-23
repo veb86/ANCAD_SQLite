@@ -40,14 +40,8 @@ namespace AcadDevices.Core
 
             try
             {
-                database.CreateTable("Devices", new Dictionary<string, SqliteColumnType>
-                {
-                    ["Name"] = SqliteColumnType.Text,
-                    ["Type"] = SqliteColumnType.Text,
-                    ["Model"] = SqliteColumnType.Text,
-                    ["Manufacturer"] = SqliteColumnType.Text,
-                    ["Description"] = SqliteColumnType.Text
-                });
+                // Write a SQLite header and an empty schema without creating a table.
+                database.ExecuteNonQuery("PRAGMA main.user_version = 0");
                 return database;
             }
             catch
@@ -57,11 +51,17 @@ namespace AcadDevices.Core
             }
         }
 
-        public IReadOnlyList<string> GetTables()
+        public IReadOnlyList<string> GetTables() =>
+            GetObjectNames("SELECT name " + UserTables + " ORDER BY name COLLATE NOCASE");
+
+        public IReadOnlyList<string> GetViews() => GetObjectNames(
+            "SELECT name FROM main.sqlite_schema WHERE type = 'view' ORDER BY name COLLATE NOCASE");
+
+        private IReadOnlyList<string> GetObjectNames(string sql)
         {
             var tables = new List<string>();
             using (var connection = OpenConnection())
-            using (var command = new SQLiteCommand("SELECT name " + UserTables + " ORDER BY name COLLATE NOCASE", connection))
+            using (var command = new SQLiteCommand(sql, connection))
             using (var reader = command.ExecuteReader())
             {
                 while (reader.Read())
@@ -71,29 +71,40 @@ namespace AcadDevices.Core
             return tables;
         }
 
-        public void CreateTable(string name, IEnumerable<KeyValuePair<string, SqliteColumnType>> columns)
+        public DataTable LoadView(string name) => ExecuteSql($"SELECT * FROM main.{Quote(name)}");
+
+        /// <summary>Executes SQL and returns its final row-producing result, or null for SQL without results.</summary>
+        public DataTable ExecuteSql(string sql)
         {
-            ValidateName(name);
-            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Id" };
-            var definitions = new List<string> { "\"Id\" INTEGER PRIMARY KEY AUTOINCREMENT" };
-            foreach (var column in columns)
+            using (var connection = OpenConnection())
+            using (var command = new SQLiteCommand(sql, connection))
+            using (var reader = command.ExecuteReader())
             {
-                ValidateName(column.Key);
-                if (!names.Add(column.Key))
-                    throw new ArgumentException($"Имя столбца «{column.Key}» уже используется.");
-
-                string type;
-                switch (column.Value)
+                DataTable result = null;
+                do
                 {
-                    case SqliteColumnType.Text: type = "TEXT"; break;
-                    case SqliteColumnType.Integer: type = "INTEGER"; break;
-                    case SqliteColumnType.Real: type = "REAL"; break;
-                    default: throw new ArgumentOutOfRangeException(nameof(columns));
-                }
-                definitions.Add($"{Quote(column.Key)} {type}");
-            }
+                    if (reader.FieldCount == 0)
+                        continue;
 
-            ExecuteNonQuery($"CREATE TABLE main.{Quote(name)} ({string.Join(", ", definitions)})");
+                    result = new DataTable();
+                    for (var index = 0; index < reader.FieldCount; index++)
+                    {
+                        // SQL may return multiple columns with the same label.
+                        var column = result.Columns.Add("Column" + index, typeof(object));
+                        column.Caption = reader.GetName(index);
+                    }
+
+                    while (reader.Read())
+                    {
+                        var values = new object[reader.FieldCount];
+                        reader.GetValues(values);
+                        result.Rows.Add(values);
+                    }
+                }
+                while (reader.NextResult());
+
+                return result;
+            }
         }
 
         public int ExecuteNonQuery(string sql, params SQLiteParameter[] parameters)
@@ -281,7 +292,7 @@ namespace AcadDevices.Core
 
                 command.CommandText += " WHERE " + string.Join(" AND ", predicates);
                 if (command.ExecuteNonQuery() != 1)
-                    throw new DBConcurrencyException("Запись изменилась или не определяется однозначно. Обновите таблицу.");
+                    throw new DBConcurrencyException("Запись изменилась или не определяется однозначно. Нажмите «Отменить», чтобы перечитать таблицу.");
             }
         }
 
@@ -305,12 +316,6 @@ namespace AcadDevices.Core
             var name = "@p" + command.Parameters.Count;
             command.Parameters.AddWithValue(name, value);
             return name;
-        }
-
-        private static void ValidateName(string name)
-        {
-            if (string.IsNullOrWhiteSpace(name) || name.IndexOf('\0') >= 0)
-                throw new ArgumentException("Укажите имя таблицы и каждого столбца.");
         }
 
         private static string Quote(string name) => "\"" + name.Replace("\"", "\"\"") + "\"";

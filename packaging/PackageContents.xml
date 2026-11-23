@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ApplicationPackage SchemaVersion="1.0" AutodeskProduct="AutoCAD" Name="ANCAD SQLite"
-                    Description="Редактор баз данных SQLite" AppVersion="1.0.0"
+                    Description="Редактор баз данных SQLite" AppVersion="1.1.0"
                     ProductCode="{D833DB93-F40F-4C2C-8E09-E4482331B3ED}" UpgradeCode="{044DCDDB-8D45-4B3D-954E-D2761C88E068}">
   <CompanyDetails Name="ANCAD SQLite" Url="https://github.com/veb86/ANCAD_SQLite" />
   <Components>

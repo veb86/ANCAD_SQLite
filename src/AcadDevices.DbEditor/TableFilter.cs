@@ -1,19 +1,24 @@
+using System.Collections.Generic;
+using System.Data;
 using System.Linq;
 using System.Text;
-using AcadDevices.Core;
 
 namespace AcadDevices.DbEditor
 {
     internal static class TableFilter
     {
-        internal static void Apply(SqliteTable table, string text)
+        internal static void Apply(DataView view, IEnumerable<KeyValuePair<string, string>> filters)
         {
-            if (text.Length == 0 || table.TextColumns.Count == 0)
+            var clauses = filters.Where(filter => filter.Value.Length > 0).Select(filter =>
             {
-                table.Data.DefaultView.RowFilter = string.Empty;
-                return;
-            }
+                var name = filter.Key.Replace("\\", "\\\\").Replace("]", "\\]");
+                return $"CONVERT([{name}], 'System.String') LIKE '%{EscapePattern(filter.Value)}%'";
+            });
+            view.RowFilter = string.Join(" AND ", clauses);
+        }
 
+        private static string EscapePattern(string text)
+        {
             var pattern = new StringBuilder();
             foreach (var character in text)
             {
@@ -30,12 +35,7 @@ namespace AcadDevices.DbEditor
                 }
             }
 
-            var clauses = table.TextColumns.Select(column =>
-            {
-                var name = column.ColumnName.Replace("\\", "\\\\").Replace("]", "\\]");
-                return $"CONVERT([{name}], 'System.String') LIKE '%{pattern}%'";
-            });
-            table.Data.DefaultView.RowFilter = string.Join(" OR ", clauses);
+            return pattern.ToString();
         }
     }
 }
